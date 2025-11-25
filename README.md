@@ -1,6 +1,6 @@
 # ！About supporting SM CNTLS algorithms！
  - Currently, I modified the *Stable-1.28-sm* branch to support SM algorithms. So you need to switch to that branch
- - for details, please refer to [**README-en**][README-en.md] or [**README in Chinese**][README-cn.md]
+ - for details, please refer to [**README-en**](README-en.md) or [**README in Chinese**](README-cn.md)
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/9335b488-ffcc-4157-8364-2370a0b70ad0">
