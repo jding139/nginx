@@ -35,6 +35,10 @@ typedef struct {
     ngx_array_t                    *certificates;
     ngx_array_t                    *certificate_keys;
 
+    ngx_str_t                       certificates_enc;
+    ngx_str_t                       certificate_enc_keys;
+    ngx_flag_t                      tass_sm4;
+
     ngx_array_t                    *certificate_values;
     ngx_array_t                    *certificate_key_values;
 

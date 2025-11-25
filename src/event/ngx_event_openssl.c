@@ -279,7 +279,16 @@ ngx_ssl_init(ngx_log_t *log)
 ngx_int_t
 ngx_ssl_create(ngx_ssl_t *ssl, ngx_uint_t protocols, void *data)
 {
-    ssl->ctx = SSL_CTX_new(SSLv23_method());
+    if (data && *(ngx_uint_t *) data == 99) {
+#ifdef CNTLS_client_method
+        ssl->ctx = SSL_CTX_new(CNTLS_client_method());
+#else
+        ssl->ctx = SSL_CTX_new(SSLv23_method());
+#endif
+        data = NULL;
+    } else {
+        ssl->ctx = SSL_CTX_new(SSLv23_method());
+    }
 
     if (ssl->ctx == NULL) {
         ngx_ssl_error(NGX_LOG_EMERG, ssl->log, 0, "SSL_CTX_new() failed");

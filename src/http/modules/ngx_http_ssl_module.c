@@ -8,6 +8,7 @@
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
+#include <openssl/engine.h>
 
 #if (NGX_QUIC_OPENSSL_COMPAT)
 #include <ngx_event_quic_openssl_compat.h>
@@ -108,6 +109,27 @@ static ngx_command_t  ngx_http_ssl_commands[] = {
       ngx_conf_set_str_array_slot,
       NGX_HTTP_SRV_CONF_OFFSET,
       offsetof(ngx_http_ssl_srv_conf_t, certificate_keys),
+      NULL },
+
+    { ngx_string("ssl_enc_certificate"),
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_CONF_TAKE1,
+      ngx_conf_set_str_slot,
+      NGX_HTTP_SRV_CONF_OFFSET,
+      offsetof(ngx_http_ssl_srv_conf_t, certificates_enc),
+      NULL },
+
+    { ngx_string("ssl_enc_certificate_key"),
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_CONF_TAKE1,
+      ngx_conf_set_str_slot,
+      NGX_HTTP_SRV_CONF_OFFSET,
+      offsetof(ngx_http_ssl_srv_conf_t, certificate_enc_keys),
+      NULL },
+
+    { ngx_string("ssl_tass_sm4"),
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_CONF_FLAG,
+      ngx_conf_set_flag_slot,
+      NGX_HTTP_SRV_CONF_OFFSET,
+      offsetof(ngx_http_ssl_srv_conf_t, tass_sm4),
       NULL },
 
     { ngx_string("ssl_certificate_cache"),
@@ -628,6 +650,7 @@ ngx_http_ssl_create_srv_conf(ngx_conf_t *cf)
     sscf->verify_depth = NGX_CONF_UNSET_UINT;
     sscf->certificates = NGX_CONF_UNSET_PTR;
     sscf->certificate_keys = NGX_CONF_UNSET_PTR;
+    sscf->tass_sm4 = NGX_CONF_UNSET;
     sscf->certificate_cache = NGX_CONF_UNSET_PTR;
     sscf->passwords = NGX_CONF_UNSET_PTR;
     sscf->conf_commands = NGX_CONF_UNSET_PTR;
@@ -673,6 +696,8 @@ ngx_http_ssl_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child)
     ngx_conf_merge_ptr_value(conf->certificates, prev->certificates, NULL);
     ngx_conf_merge_ptr_value(conf->certificate_keys, prev->certificate_keys,
                          NULL);
+    ngx_conf_merge_str_value(conf->certificates_enc, prev->certificates_enc, "");
+    ngx_conf_merge_str_value(conf->certificate_enc_keys, prev->certificate_enc_keys, "");
 
     ngx_conf_merge_ptr_value(conf->certificate_cache, prev->certificate_cache,
                          NULL);
@@ -726,6 +751,32 @@ ngx_http_ssl_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child)
 
     if (ngx_ssl_create(&conf->ssl, conf->protocols, conf) != NGX_OK) {
         return NGX_CONF_ERROR;
+    }
+
+    /* initialize TASSL SM4 engine if requested */
+    if (conf->tass_sm4 == 1) {
+#ifndef OPENSSL_NO_ENGINE
+        const char *engine_name_sm4 = "tasscard_sm4";
+        ENGINE *tasscardsm4_e = ENGINE_by_id(engine_name_sm4);
+        if (tasscardsm4_e == NULL) {
+            ngx_log_error(NGX_LOG_EMERG, cf->log, 0,
+                          "ENGINE load id=[%s] failed", engine_name_sm4);
+            return NGX_CONF_ERROR;
+        }
+
+        if (ENGINE_init(tasscardsm4_e)) {
+            ENGINE_register_ciphers(tasscardsm4_e);
+            ENGINE_set_default_RAND(tasscardsm4_e);
+            ENGINE_finish(tasscardsm4_e);
+        } else {
+            ngx_log_error(NGX_LOG_EMERG, cf->log, 0,
+                          "ENGINE init id=[%s] failed", engine_name_sm4);
+            ENGINE_free(tasscardsm4_e);
+            return NGX_CONF_ERROR;
+        }
+
+        ENGINE_free(tasscardsm4_e);
+#endif
     }
 
     cln = ngx_pool_cleanup_add(cf->pool, 0);
@@ -791,6 +842,27 @@ ngx_http_ssl_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child)
             != NGX_OK)
         {
             return NGX_CONF_ERROR;
+        }
+
+        /* load TASSL GM encryption cert/key if configured */
+        if (conf->certificates_enc.len > 0) {
+            if (SSL_CTX_use_enc_certificate_file(conf->ssl.ctx,
+                    (char *) conf->certificates_enc.data, SSL_FILETYPE_PEM) == 0)
+            {
+                ngx_ssl_error(NGX_LOG_EMERG, conf->ssl.log, 0,
+                              "SSL_CTX_use_enc_certificate_file(\"%s\") failed",
+                              conf->certificates_enc.data);
+                return NGX_CONF_ERROR;
+            }
+
+            if (SSL_CTX_use_enc_PrivateKey_file(conf->ssl.ctx,
+                    (char *) conf->certificate_enc_keys.data, SSL_FILETYPE_PEM) == 0)
+            {
+                ngx_ssl_error(NGX_LOG_EMERG, conf->ssl.log, 0,
+                              "SSL_CTX_use_enc_PrivateKey_file(\"%s\") failed",
+                              conf->certificate_enc_keys.data);
+                return NGX_CONF_ERROR;
+            }
         }
     }
 
